@@ -1,0 +1,205 @@
+mod db;
+mod feeds;
+mod filters;
+mod llm;
+mod state;
+mod tui;
+
+use std::time::Duration;
+
+use anyhow::Result;
+use crossterm::event::KeyCode;
+use tokio::sync::mpsc;
+
+use crate::db::Db;
+use crate::state::{AppState, Config, CveEntry, Pane};
+use crate::tui::{AppEvent, Tui};
+
+// NOTE: shared keybinding handler for actions available in both FeedList and Detail panes
+fn handle_shared(
+    code: KeyCode, state: &mut AppState, db: &Db, llm_tx: &mpsc::UnboundedSender<CveEntry>,
+) -> bool {
+    match code {
+        KeyCode::Char('o') => {
+            if let Some(url) = state.selected_entry_index().and_then(|i| state.entries[i].url.as_deref()) {
+                let _ = std::process::Command::new("open").arg(url).spawn();
+            }
+        }
+        KeyCode::Char('r') => {
+            if let Some(i) = state.selected_entry_index() {
+                let _ = db.clear_llm(&state.entries[i].id);
+                state.entries[i].llm_summary = None;
+                state.entries[i].ascii_diagram = None;
+                state.entries[i].relevance_score = None;
+                state.entries[i].cve_ids.clear();
+                let _ = llm_tx.send(state.entries[i].clone());
+            }
+        }
+        KeyCode::Char('x') => {
+            if let Some(i) = state.selected_entry_index() {
+                let _ = db.delete_entry(&state.entries[i].id);
+                state.entries.remove(i);
+                state.refilter();
+            }
+        }
+        KeyCode::Char('s') => { state.sort_mode = state.sort_mode.next(); state.refilter(); }
+        KeyCode::Char('/') => { state.active_pane = Pane::FilterBar; }
+        _ => return false,
+    }
+    true
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--help" || a == "-h") {
+        println!("argus — TUI security feed monitor\n");
+        println!("Usage: argus [OPTIONS]\n");
+        println!("Options:");
+        println!("  --nuke-db    Delete the SQLite cache and start fresh");
+        println!("  -h, --help   Show this help");
+        return Ok(());
+    }
+    if args.iter().any(|a| a == "--nuke-db") {
+        let path = ".argusterm/cache.db";
+        if std::path::Path::new(path).exists() {
+            std::fs::remove_file(path)?;
+            println!("Deleted {path}");
+        } else {
+            println!("No cache to delete");
+        }
+        return Ok(());
+    }
+
+    let config = Config::load()?;
+    let mut tui = Tui::new()?;
+    tui.start(Duration::from_millis(config.tui.refresh_rate_ms));
+
+    feeds::spawn(tui.event_tx(), config.feeds.urls, config.feeds.poll_interval_secs);
+    let scraper_key = config.scraper.map(|s| s.api_key);
+    let llm_tx = llm::spawn(
+        tui.event_tx(), config.llm.model, config.llm.api_key, scraper_key,
+        config.llm.max_concurrent, config.diagram.graph_easy_bin, config.diagram.perl5lib,
+    );
+
+    let db = db::Db::open()?;
+    let days_lookback = config.filters.days_lookback;
+    let ingest_cutoff = chrono::Utc::now() - chrono::Duration::days(days_lookback as i64);
+
+    let mut state = AppState::default();
+    for e in db.load_since(days_lookback)? {
+        if e.llm_summary.is_none() { let _ = llm_tx.send(e.clone()); }
+        state.entries.push(e);
+    }
+    state.refilter();
+
+    let mut needs_draw = true;
+    while let Some(event) = tui.next().await {
+        match event {
+            AppEvent::Key(key) => {
+                if state.active_pane == Pane::FilterBar {
+                    match key.code {
+                        KeyCode::Esc | KeyCode::Tab => state.active_pane = Pane::FeedList,
+                        KeyCode::Char(c) => { state.filter_text.push(c); state.refilter(); }
+                        KeyCode::Backspace => { state.filter_text.pop(); state.refilter(); }
+                        KeyCode::Enter => state.active_pane = Pane::FeedList,
+                        _ => {}
+                    }
+                } else if state.active_pane == Pane::Detail {
+                    if state.cve_bar_active {
+                        match key.code {
+                            KeyCode::Char('h') | KeyCode::Left => state.cve_bar_prev(),
+                            KeyCode::Char('l') | KeyCode::Right => state.cve_bar_next(),
+                            KeyCode::Char('o') => {
+                                if let Some(i) = state.selected_entry_index() {
+                                    if let Some(cve_id) = state.entries[i].cve_ids.get(state.cve_bar_index) {
+                                        let url = format!("https://nvd.nist.gov/vuln/detail/{cve_id}");
+                                        let _ = std::process::Command::new("open").arg(&url).spawn();
+                                    }
+                                }
+                            }
+                            KeyCode::Esc | KeyCode::Char('c') => state.cve_bar_active = false,
+                            _ => {}
+                        }
+                    } else if !handle_shared(key.code, &mut state, &db, &llm_tx) {
+                        match key.code {
+                            KeyCode::Char('q') | KeyCode::Esc => state.should_quit = true,
+                            KeyCode::Down | KeyCode::Char('j') => state.scroll_detail_down(),
+                            KeyCode::Up | KeyCode::Char('k') => state.scroll_detail_up(),
+                            KeyCode::Right | KeyCode::Char('l') => state.scroll_detail_right(),
+                            KeyCode::Left | KeyCode::Char('h') => state.scroll_detail_left(),
+                            KeyCode::Char('c') => {
+                                if let Some(i) = state.selected_entry_index() {
+                                    if !state.entries[i].cve_ids.is_empty() {
+                                        state.cve_bar_active = true;
+                                        state.cve_bar_index = 0;
+                                    }
+                                }
+                            }
+                            KeyCode::Tab => state.active_pane = Pane::FeedList,
+                            _ => {}
+                        }
+                    }
+                } else if state.pending_g {
+                    state.pending_g = false;
+                    if key.code == KeyCode::Char('g') { state.select_first(); }
+                } else if !handle_shared(key.code, &mut state, &db, &llm_tx) {
+                    match key.code {
+                        KeyCode::Char('q') | KeyCode::Esc => state.should_quit = true,
+                        KeyCode::Down | KeyCode::Char('j') => state.select_next(),
+                        KeyCode::Up | KeyCode::Char('k') => state.select_prev(),
+                        KeyCode::Char('d') => state.select_half_down(),
+                        KeyCode::Char('u') => state.select_half_up(),
+                        KeyCode::Char('g') => state.pending_g = true,
+                        KeyCode::Char('G') => state.select_last(),
+                        KeyCode::Tab => state.active_pane = Pane::Detail,
+                        _ => {}
+                    }
+                }
+                needs_draw = true;
+            }
+            AppEvent::Tick => needs_draw = true,
+            AppEvent::NewEntries(entries) => {
+                for e in entries {
+                    if e.published < ingest_cutoff { continue; }
+                    if !state.entries.iter().any(|x| x.id == e.id) {
+                        let _ = db.upsert_entry(&e);
+                        let _ = llm_tx.send(e.clone());
+                        state.entries.push(e);
+                    }
+                }
+                state.refilter();
+                state.is_loading = false;
+                needs_draw = true;
+            }
+            AppEvent::LlmResult(u) => {
+                if let Some(entry) = state.entries.iter_mut().find(|e| e.id == u.entry_id) {
+                    entry.content_type = Some(u.content_type);
+                    entry.severity = if u.severity == "unknown" { None } else { Some(u.severity) };
+                    entry.llm_summary = Some(u.summary);
+                    entry.ascii_diagram = Some(u.ascii_diagram);
+                    entry.relevance_score = Some(u.relevance_score);
+                    entry.cve_ids = u.cve_ids;
+                    if u.scraped_content.is_some() { entry.scraped_content = u.scraped_content; }
+                    let _ = db.upsert_entry(entry);
+                }
+                // NOTE: clamp CVE bar index if list shrank after re-triage
+                if let Some(i) = state.selected_entry_index() {
+                    let max = state.entries[i].cve_ids.len().saturating_sub(1);
+                    state.cve_bar_index = state.cve_bar_index.min(max);
+                }
+                state.refilter();
+                needs_draw = true;
+            }
+            AppEvent::Resize => needs_draw = true,
+            AppEvent::Error => {}
+        }
+        if state.should_quit { break; }
+        if needs_draw {
+            tui.terminal_mut().draw(|frame| crate::tui::render(frame, &mut state))?;
+            needs_draw = false;
+        }
+    }
+    tui.stop();
+    Ok(())
+}

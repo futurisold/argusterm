@@ -1,0 +1,26 @@
+[package]
+name = "argusterm"
+version = "0.4.0"
+edition = "2024"
+description = "TUI security feed monitor with LLM-powered triage"
+
+[[bin]]
+name = "argus"
+path = "src/main.rs"
+
+[dependencies]
+ratatui = "0.29"
+crossterm = { version = "0.28", features = ["event-stream"] }
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", features = ["json"] }
+feed-rs = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+syntect = "5"
+anyhow = "1"
+minijinja = "2"
+rusqlite = { version = "0.31", features = ["bundled"] }
+futures = "0.3"
+tokio-util = { version = "0.7", features = ["rt"] }

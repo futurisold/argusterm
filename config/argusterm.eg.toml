@@ -1,0 +1,41 @@
+[feeds]
+urls = [
+    # CVE & Vulnerability feeds
+    "https://www.cisa.gov/cybersecurity-advisories/all.xml",
+    "https://us-cert.cisa.gov/ncas/alerts.xml",
+    "https://api.msrc.microsoft.com/update-guide/rss",
+    "https://ubuntu.com/security/notices/atom.xml",
+    "https://kb.cert.org/vulfeed/",
+    # Security news
+    "https://www.theregister.com/security/headlines.atom",
+    "https://krebsonsecurity.com/feed/",
+    "https://www.schneier.com/feed/atom/",
+    "https://www.bleepingcomputer.com/feed/",
+    "https://feeds.feedburner.com/TheHackersNews",
+    "https://www.darkreading.com/rss.xml",
+    "https://therecord.media/feed",
+    "https://www.securityweek.com/feed/",
+    "https://isc.sans.edu/rssfeed.xml",
+    # Research blogs
+    "https://securelist.com/feed/",
+    "https://blog.qualys.com/feed",
+]
+poll_interval_secs = 300
+
+[llm]
+model = "claude-sonnet-4-6"
+api_key = "your-anthropic-api-key-here"
+max_concurrent = 20
+
+[scraper]
+api_key = "your-parallel-ai-key-here"
+
+[diagram]
+graph_easy_bin = "/usr/local/bin/graph-easy"
+perl5lib = "/usr/local/lib/perl5"
+
+[filters]
+days_lookback = 7
+
+[tui]
+refresh_rate_ms = 250
