@@ -14,10 +14,10 @@ use crate::tui::{AppEvent, LlmUpdate};
 
 fn load_templates() -> Environment<'static> {
     let mut env = Environment::new();
-    env.add_template("triage_system", include_str!("../../prompts/triage_system.j2"))
-        .expect("failed to load triage_system.j2");
-    env.add_template("triage_user", include_str!("../../prompts/triage_user.j2"))
-        .expect("failed to load triage_user.j2");
+    for (name, src) in [
+        ("triage_system", include_str!("../../prompts/triage_system.j2")),
+        ("triage_user", include_str!("../../prompts/triage_user.j2")),
+    ] { env.add_template(name, src).unwrap_or_else(|_| panic!("failed to load {name}")); }
     env
 }
 
@@ -38,40 +38,7 @@ struct TriageResult {
 }
 
 fn triage_schema() -> Value {
-    json!({
-        "type": "object",
-        "properties": {
-            "content_type": {
-                "type": "string",
-                "enum": ["cve", "advisory", "news", "research", "promotional", "irrelevant"],
-                "description": "Classification of the entry content"
-            },
-            "relevance_score": {
-                "type": "number",
-                "description": "How relevant to AI/ML/LLM security, 0.0 to 1.0"
-            },
-            "severity": {
-                "type": "string",
-                "enum": ["critical", "high", "medium", "low", "unknown"],
-                "description": "CVSS severity if stated, otherwise inferred from impact"
-            },
-            "summary": {
-                "type": "string",
-                "description": "2-3 sentence vulnerability analysis"
-            },
-            "dot_diagram": {
-                "type": "string",
-                "description": "Graphviz DOT digraph showing the attack surface. Use rankdir=TB, short labels, box shapes."
-            },
-            "cve_ids": {
-                "type": "array",
-                "items": { "type": "string" },
-                "description": "CVE identifiers (CVE-YYYY-NNNNN) mentioned. Empty array if none."
-            }
-        },
-        "required": ["content_type", "relevance_score", "severity", "summary", "dot_diagram", "cve_ids"],
-        "additionalProperties": false
-    })
+    serde_json::from_str(include_str!("../../prompts/triage_schema.json")).expect("invalid triage_schema.json")
 }
 
 async fn scrape_url(client: &reqwest::Client, api_key: &str, url: &str) -> anyhow::Result<String> {

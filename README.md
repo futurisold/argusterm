@@ -9,8 +9,6 @@ Polls 16 RSS/Atom feeds, scrapes full article content, triages entries via LLM f
 
 ## Architecture
 
-See [`artifacts/architecture.mmd`](artifacts/architecture.mmd) for the full Mermaid diagram.
-
 ```
 RSS/Atom Feeds (16)
   → reqwest async polling
@@ -95,49 +93,15 @@ The `days_lookback` setting controls both which cached entries are loaded on sta
 
 ## Keybindings
 
-| Key | Context | Action |
-|---|---|---|
-| `j` / `k` | Feed List | Navigate up/down |
-| `d` / `u` | Feed List | Half-page down/up |
-| `gg` | Feed List | Jump to top |
-| `G` | Feed List | Jump to bottom |
-| `j` / `k` | Detail | Scroll vertically |
-| `h` / `l` | Detail | Scroll horizontally |
-| `c` | Detail | Enter CVE bar |
-| `h` / `l` | CVE Bar | Navigate between CVE IDs |
-| `o` | Feed List / Detail | Open entry URL in browser |
-| `o` | CVE Bar | Open selected CVE on NVD |
-| `r` | Feed List / Detail | Re-triage entry via LLM |
-| `x` | Feed List / Detail | Delete entry from TUI and DB |
-| `s` | Feed List / Detail | Cycle sort mode (score/date asc/desc) |
-| `/` | Feed List / Detail | Enter filter bar |
-| Type | Filter Bar | Live text filter (title, source, description) |
-| `Backspace` | Filter Bar | Delete character |
-| `Tab` | Any | Cycle between panels |
-| `Esc` | CVE Bar | Exit CVE bar |
-| `Esc` / `Enter` | Filter Bar | Exit filter bar |
-| `q` / `Esc` | Feed List / Detail | Quit |
-
-## Feed Sources
-
-16 feeds across CVE databases, security news, and research blogs. Categories color-coded in the TUI:
-
-| Label | Color | Sources |
-|---|---|---|
-| `CISA` | Yellow | CISA advisories, alerts |
-| `MSRC` | Magenta | Microsoft Security Response Center |
-| `CERT` | Light Yellow | CERT/CC |
-| `RSCH` | Light Green | Securelist, Qualys |
-| `COMM` | Light Cyan | Krebs, Schneier, SANS ISC |
-| `NEWS` | Blue | Bleeping Computer, Hacker News, Dark Reading, The Record, SecurityWeek, The Register, Ubuntu |
+| Context | Keys |
+|---|---|
+| **Feed List** | `j`/`k` nav · `d`/`u` half-page · `gg`/`G` top/bottom |
+| **Detail** | `j`/`k` vscroll · `h`/`l` hscroll · `c` enter CVE bar |
+| **CVE Bar** | `h`/`l` nav · `o` open on NVD · `Esc` exit |
+| **Filter Bar** | type to filter · `Backspace` delete · `Esc`/`Enter` exit |
+| **Global** | `o` open URL · `r` re-triage · `x` delete · `s` cycle sort · `/` filter · `Tab` cycle panes · `q`/`Esc` quit |
 
 ## Data Persistence
 
-Entries and LLM results are cached in `.argusterm/cache.db` (SQLite). On restart, cached entries within the `days_lookback` window are loaded instantly — only entries missing LLM results are re-triaged. The `r` key clears the selected entry's cached LLM data and re-triages it; `x` permanently deletes the selected entry from both the TUI and the database.
+Entries and LLM results are cached in `.argusterm/cache.db` (SQLite). On restart, cached entries within `days_lookback` load instantly; only entries missing LLM results are re-triaged.
 
-## Prompt Templates
-
-LLM prompts live in `prompts/` as Jinja2 templates (via [minijinja](https://docs.rs/minijinja)):
-
-- `prompts/triage_system.j2` — system prompt with scoring criteria, content classification, and DOT grammar rules
-- `prompts/triage_user.j2` — user message template with entry fields

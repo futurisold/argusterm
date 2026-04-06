@@ -60,20 +60,15 @@ pub enum Pane { #[default] FeedList, Detail, FilterBar }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SortMode { #[default] None, ScoreDesc, ScoreAsc, DateDesc, DateAsc }
 
+const SORT_CYCLE: &[(SortMode, &str)] = &[
+    (SortMode::None, ""), (SortMode::ScoreDesc, "score↓"), (SortMode::ScoreAsc, "score↑"),
+    (SortMode::DateDesc, "date↓"), (SortMode::DateAsc, "date↑"),
+];
+
 impl SortMode {
-    pub fn next(self) -> Self {
-        match self {
-            Self::None => Self::ScoreDesc, Self::ScoreDesc => Self::ScoreAsc,
-            Self::ScoreAsc => Self::DateDesc, Self::DateDesc => Self::DateAsc,
-            Self::DateAsc => Self::None,
-        }
-    }
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::None => "", Self::ScoreDesc => "score↓", Self::ScoreAsc => "score↑",
-            Self::DateDesc => "date↓", Self::DateAsc => "date↑",
-        }
-    }
+    fn pos(self) -> usize { SORT_CYCLE.iter().position(|(m, _)| *m == self).unwrap_or(0) }
+    pub fn next(self) -> Self { SORT_CYCLE[(self.pos() + 1) % SORT_CYCLE.len()].0 }
+    pub fn label(self) -> &'static str { SORT_CYCLE[self.pos()].1 }
 }
 
 #[derive(Debug, Clone)]
@@ -136,57 +131,35 @@ impl AppState {
 
     pub fn refilter(&mut self) {
         self.filtered = crate::filters::apply(&self.entries, &self.filter_text, self.sort_mode);
-        if self.filtered.is_empty() {
-            self.list_state.select(None);
-        } else {
-            let max = self.filtered.len() - 1;
-            self.list_state.select(Some(self.list_state.selected().unwrap_or(0).min(max)));
-        }
+        let sel = if self.filtered.is_empty() { None }
+            else { Some(self.list_state.selected().unwrap_or(0).min(self.filtered.len() - 1)) };
+        self.list_state.select(sel);
     }
 
     pub fn selected_entry_index(&self) -> Option<usize> {
         self.list_state.selected().and_then(|i| self.filtered.get(i).copied())
     }
 
-    fn navigate(&mut self, idx: usize) {
-        self.list_state.select(Some(idx));
+    pub fn select_delta(&mut self, delta: i32) {
+        if self.filtered.is_empty() { return; }
+        let max = (self.filtered.len() - 1) as i32;
+        let cur = self.list_state.selected().unwrap_or(0) as i32;
+        self.list_state.select(Some((cur + delta).clamp(0, max) as usize));
         self.reset_detail();
     }
+    pub fn select_first(&mut self) { self.select_delta(i32::MIN / 2); }
+    pub fn select_last(&mut self) { self.select_delta(i32::MAX / 2); }
+    pub fn half(&self) -> i32 { (self.list_height / 2) as i32 }
 
-    pub fn select_next(&mut self) {
-        if self.filtered.is_empty() { return; }
-        let max = self.filtered.len() - 1;
-        self.navigate((self.list_state.selected().unwrap_or(0).min(max) + 1).min(max));
-    }
-    pub fn select_prev(&mut self) {
-        if self.filtered.is_empty() { return; }
-        self.navigate(self.list_state.selected().unwrap_or(0).saturating_sub(1));
-    }
-    pub fn select_half_down(&mut self) {
-        if self.filtered.is_empty() { return; }
-        let max = self.filtered.len() - 1;
-        self.navigate((self.list_state.selected().unwrap_or(0) + self.list_height / 2).min(max));
-    }
-    pub fn select_half_up(&mut self) {
-        if self.filtered.is_empty() { return; }
-        self.navigate(self.list_state.selected().unwrap_or(0).saturating_sub(self.list_height / 2));
-    }
-    pub fn select_first(&mut self) {
-        if !self.filtered.is_empty() { self.navigate(0); }
-    }
-    pub fn select_last(&mut self) {
-        if !self.filtered.is_empty() { self.navigate(self.filtered.len() - 1); }
-    }
-
-    pub fn cve_bar_next(&mut self) {
+    pub fn cve_bar_move(&mut self, delta: i32) {
         if let Some(i) = self.selected_entry_index() {
-            let max = self.entries[i].cve_ids.len().saturating_sub(1);
-            self.cve_bar_index = (self.cve_bar_index + 1).min(max);
+            let max = self.entries[i].cve_ids.len().saturating_sub(1) as i32;
+            self.cve_bar_index = (self.cve_bar_index as i32 + delta).clamp(0, max) as usize;
         }
     }
-    pub fn cve_bar_prev(&mut self) { self.cve_bar_index = self.cve_bar_index.saturating_sub(1); }
-    pub fn scroll_detail_down(&mut self) { self.detail_scroll = self.detail_scroll.saturating_add(1); }
-    pub fn scroll_detail_up(&mut self) { self.detail_scroll = self.detail_scroll.saturating_sub(1); }
-    pub fn scroll_detail_right(&mut self) { self.detail_hscroll = self.detail_hscroll.saturating_add(2); }
-    pub fn scroll_detail_left(&mut self) { self.detail_hscroll = self.detail_hscroll.saturating_sub(2); }
+    pub fn scroll_detail(&mut self, dy: i32, dx: i32) {
+        // NOTE: saturating arithmetic via i32 detour, then back to u16
+        self.detail_scroll = (self.detail_scroll as i32 + dy).max(0) as u16;
+        self.detail_hscroll = (self.detail_hscroll as i32 + dx).max(0) as u16;
+    }
 }

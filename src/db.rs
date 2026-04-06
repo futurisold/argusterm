@@ -83,20 +83,10 @@ impl Db {
     }
 }
 
-fn source_str(s: FeedSource) -> &'static str {
-    match s {
-        FeedSource::Nvd => "nvd", FeedSource::Cisa => "cisa", FeedSource::GitHub => "github",
-        FeedSource::Microsoft => "microsoft", FeedSource::Cert => "cert",
-        FeedSource::Research => "research", FeedSource::Community => "community",
-        FeedSource::Exploit => "exploit", FeedSource::News => "news",
-    }
-}
-
-fn parse_source(s: &str) -> FeedSource {
-    match s {
-        "nvd" => FeedSource::Nvd, "cisa" => FeedSource::Cisa, "github" => FeedSource::GitHub,
-        "microsoft" => FeedSource::Microsoft, "cert" => FeedSource::Cert,
-        "research" => FeedSource::Research, "community" => FeedSource::Community,
-        "exploit" => FeedSource::Exploit, _ => FeedSource::News,
-    }
-}
+const SOURCES: &[(FeedSource, &str)] = &[
+    (FeedSource::Nvd, "nvd"), (FeedSource::Cisa, "cisa"), (FeedSource::GitHub, "github"),
+    (FeedSource::Microsoft, "microsoft"), (FeedSource::Cert, "cert"), (FeedSource::Research, "research"),
+    (FeedSource::Community, "community"), (FeedSource::Exploit, "exploit"), (FeedSource::News, "news"),
+];
+fn source_str(s: FeedSource) -> &'static str { SOURCES.iter().find(|(f, _)| *f == s).map(|(_, n)| *n).unwrap_or("news") }
+fn parse_source(s: &str) -> FeedSource { SOURCES.iter().find(|(_, n)| *n == s).map(|(f, _)| *f).unwrap_or(FeedSource::News) }

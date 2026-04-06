@@ -1,0 +1,34 @@
+{
+  "type": "object",
+  "properties": {
+    "content_type": {
+      "type": "string",
+      "enum": ["cve", "advisory", "news", "research", "promotional", "irrelevant"],
+      "description": "Classification of the entry content"
+    },
+    "relevance_score": {
+      "type": "number",
+      "description": "How relevant to AI/ML/LLM security, 0.0 to 1.0"
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["critical", "high", "medium", "low", "unknown"],
+      "description": "CVSS severity if stated, otherwise inferred from impact"
+    },
+    "summary": {
+      "type": "string",
+      "description": "2-3 sentence vulnerability analysis"
+    },
+    "dot_diagram": {
+      "type": "string",
+      "description": "Graphviz DOT digraph showing the attack surface. Use rankdir=TB, short labels, box shapes."
+    },
+    "cve_ids": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "CVE identifiers (CVE-YYYY-NNNNN) mentioned. Empty array if none."
+    }
+  },
+  "required": ["content_type", "relevance_score", "severity", "summary", "dot_diagram", "cve_ids"],
+  "additionalProperties": false
+}

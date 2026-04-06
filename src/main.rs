@@ -20,30 +20,23 @@ fn handle_shared(
     code: KeyCode, state: &mut AppState, db: &Db, llm_tx: &mpsc::UnboundedSender<CveEntry>,
 ) -> bool {
     match code {
-        KeyCode::Char('o') => {
-            if let Some(url) = state.selected_entry_index().and_then(|i| state.entries[i].url.as_deref()) {
-                let _ = std::process::Command::new("open").arg(url).spawn();
-            }
+        KeyCode::Char('q') | KeyCode::Esc => state.should_quit = true,
+        KeyCode::Char('o') => if let Some(url) = state.selected_entry_index().and_then(|i| state.entries[i].url.as_deref()) {
+            let _ = std::process::Command::new("open").arg(url).spawn();
         }
-        KeyCode::Char('r') => {
-            if let Some(i) = state.selected_entry_index() {
-                let _ = db.clear_llm(&state.entries[i].id);
-                state.entries[i].llm_summary = None;
-                state.entries[i].ascii_diagram = None;
-                state.entries[i].relevance_score = None;
-                state.entries[i].cve_ids.clear();
-                let _ = llm_tx.send(state.entries[i].clone());
-            }
+        KeyCode::Char('r') => if let Some(i) = state.selected_entry_index() {
+            let _ = db.clear_llm(&state.entries[i].id);
+            let e = &mut state.entries[i];
+            e.llm_summary = None; e.ascii_diagram = None; e.relevance_score = None; e.cve_ids.clear();
+            let _ = llm_tx.send(state.entries[i].clone());
         }
-        KeyCode::Char('x') => {
-            if let Some(i) = state.selected_entry_index() {
-                let _ = db.delete_entry(&state.entries[i].id);
-                state.entries.remove(i);
-                state.refilter();
-            }
+        KeyCode::Char('x') => if let Some(i) = state.selected_entry_index() {
+            let _ = db.delete_entry(&state.entries[i].id);
+            state.entries.remove(i);
+            state.refilter();
         }
         KeyCode::Char('s') => { state.sort_mode = state.sort_mode.next(); state.refilter(); }
-        KeyCode::Char('/') => { state.active_pane = Pane::FilterBar; }
+        KeyCode::Char('/') => state.active_pane = Pane::FilterBar,
         _ => return false,
     }
     true
@@ -52,22 +45,13 @@ fn handle_shared(
 #[tokio::main]
 async fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
-    if args.iter().any(|a| a == "--help" || a == "-h") {
-        println!("argus — TUI security feed monitor\n");
-        println!("Usage: argus [OPTIONS]\n");
-        println!("Options:");
-        println!("  --nuke-db    Delete the SQLite cache and start fresh");
-        println!("  -h, --help   Show this help");
+    if args.iter().any(|a| a == "-h" || a == "--help") {
+        println!("argus — TUI security feed monitor\n\nUsage: argus [OPTIONS]\n\nOptions:\n  --nuke-db    Delete the SQLite cache and start fresh\n  -h, --help   Show this help");
         return Ok(());
     }
     if args.iter().any(|a| a == "--nuke-db") {
         let path = ".argusterm/cache.db";
-        if std::path::Path::new(path).exists() {
-            std::fs::remove_file(path)?;
-            println!("Deleted {path}");
-        } else {
-            println!("No cache to delete");
-        }
+        println!("{}", if std::path::Path::new(path).exists() { std::fs::remove_file(path)?; format!("Deleted {path}") } else { "No cache to delete".into() });
         return Ok(());
     }
 
@@ -99,42 +83,32 @@ async fn main() -> Result<()> {
             AppEvent::Key(key) => {
                 if state.active_pane == Pane::FilterBar {
                     match key.code {
-                        KeyCode::Esc | KeyCode::Tab => state.active_pane = Pane::FeedList,
+                        KeyCode::Esc | KeyCode::Tab | KeyCode::Enter => state.active_pane = Pane::FeedList,
                         KeyCode::Char(c) => { state.filter_text.push(c); state.refilter(); }
                         KeyCode::Backspace => { state.filter_text.pop(); state.refilter(); }
-                        KeyCode::Enter => state.active_pane = Pane::FeedList,
+                        _ => {}
+                    }
+                } else if state.active_pane == Pane::Detail && state.cve_bar_active {
+                    match key.code {
+                        KeyCode::Char('h') | KeyCode::Left => state.cve_bar_move(-1),
+                        KeyCode::Char('l') | KeyCode::Right => state.cve_bar_move(1),
+                        KeyCode::Char('o') => if let Some(cve_id) = state.selected_entry_index()
+                            .and_then(|i| state.entries[i].cve_ids.get(state.cve_bar_index)) {
+                            let _ = std::process::Command::new("open")
+                                .arg(format!("https://nvd.nist.gov/vuln/detail/{cve_id}")).spawn();
+                        }
+                        KeyCode::Esc | KeyCode::Char('c') => state.cve_bar_active = false,
                         _ => {}
                     }
                 } else if state.active_pane == Pane::Detail {
-                    if state.cve_bar_active {
+                    if !handle_shared(key.code, &mut state, &db, &llm_tx) {
                         match key.code {
-                            KeyCode::Char('h') | KeyCode::Left => state.cve_bar_prev(),
-                            KeyCode::Char('l') | KeyCode::Right => state.cve_bar_next(),
-                            KeyCode::Char('o') => {
-                                if let Some(i) = state.selected_entry_index() {
-                                    if let Some(cve_id) = state.entries[i].cve_ids.get(state.cve_bar_index) {
-                                        let url = format!("https://nvd.nist.gov/vuln/detail/{cve_id}");
-                                        let _ = std::process::Command::new("open").arg(&url).spawn();
-                                    }
-                                }
-                            }
-                            KeyCode::Esc | KeyCode::Char('c') => state.cve_bar_active = false,
-                            _ => {}
-                        }
-                    } else if !handle_shared(key.code, &mut state, &db, &llm_tx) {
-                        match key.code {
-                            KeyCode::Char('q') | KeyCode::Esc => state.should_quit = true,
-                            KeyCode::Down | KeyCode::Char('j') => state.scroll_detail_down(),
-                            KeyCode::Up | KeyCode::Char('k') => state.scroll_detail_up(),
-                            KeyCode::Right | KeyCode::Char('l') => state.scroll_detail_right(),
-                            KeyCode::Left | KeyCode::Char('h') => state.scroll_detail_left(),
-                            KeyCode::Char('c') => {
-                                if let Some(i) = state.selected_entry_index() {
-                                    if !state.entries[i].cve_ids.is_empty() {
-                                        state.cve_bar_active = true;
-                                        state.cve_bar_index = 0;
-                                    }
-                                }
+                            KeyCode::Down | KeyCode::Char('j') => state.scroll_detail(1, 0),
+                            KeyCode::Up | KeyCode::Char('k') => state.scroll_detail(-1, 0),
+                            KeyCode::Right | KeyCode::Char('l') => state.scroll_detail(0, 2),
+                            KeyCode::Left | KeyCode::Char('h') => state.scroll_detail(0, -2),
+                            KeyCode::Char('c') => if let Some(i) = state.selected_entry_index() {
+                                if !state.entries[i].cve_ids.is_empty() { state.cve_bar_active = true; state.cve_bar_index = 0; }
                             }
                             KeyCode::Tab => state.active_pane = Pane::FeedList,
                             _ => {}
@@ -145,11 +119,10 @@ async fn main() -> Result<()> {
                     if key.code == KeyCode::Char('g') { state.select_first(); }
                 } else if !handle_shared(key.code, &mut state, &db, &llm_tx) {
                     match key.code {
-                        KeyCode::Char('q') | KeyCode::Esc => state.should_quit = true,
-                        KeyCode::Down | KeyCode::Char('j') => state.select_next(),
-                        KeyCode::Up | KeyCode::Char('k') => state.select_prev(),
-                        KeyCode::Char('d') => state.select_half_down(),
-                        KeyCode::Char('u') => state.select_half_up(),
+                        KeyCode::Down | KeyCode::Char('j') => state.select_delta(1),
+                        KeyCode::Up | KeyCode::Char('k') => state.select_delta(-1),
+                        KeyCode::Char('d') => state.select_delta(state.half()),
+                        KeyCode::Char('u') => state.select_delta(-state.half()),
                         KeyCode::Char('g') => state.pending_g = true,
                         KeyCode::Char('G') => state.select_last(),
                         KeyCode::Tab => state.active_pane = Pane::Detail,
@@ -160,15 +133,24 @@ async fn main() -> Result<()> {
             }
             AppEvent::Tick => needs_draw = true,
             AppEvent::NewEntries(entries) => {
+                // NOTE: preserve selection by id — inserting in date-desc order shifts indices
+                let selected_id = state.selected_entry_index().map(|i| state.entries[i].id.clone());
                 for e in entries {
                     if e.published < ingest_cutoff { continue; }
                     if !state.entries.iter().any(|x| x.id == e.id) {
                         let _ = db.upsert_entry(&e);
                         let _ = llm_tx.send(e.clone());
-                        state.entries.push(e);
+                        // NOTE: maintain published-desc invariant so new items appear at the top of the feed list
+                        let pos = state.entries.partition_point(|x| x.published > e.published);
+                        state.entries.insert(pos, e);
                     }
                 }
                 state.refilter();
+                if let Some(id) = selected_id {
+                    if let Some(pos) = state.filtered.iter().position(|&i| state.entries[i].id == id) {
+                        state.list_state.select(Some(pos));
+                    }
+                }
                 state.is_loading = false;
                 needs_draw = true;
             }

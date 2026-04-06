@@ -18,13 +18,9 @@ fn strip_html(s: &str) -> String {
             _ => {}
         }
     }
-    out.replace("&amp;", "&")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&nbsp;", " ")
-        .replace("&quot;", "\"")
-        .replace("&#39;", "'")
-        .replace("&apos;", "'")
+    const ENT: &[(&str, &str)] = &[("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">"),
+        ("&nbsp;", " "), ("&quot;", "\""), ("&#39;", "'"), ("&apos;", "'")];
+    ENT.iter().fold(out, |acc, (f, t)| acc.replace(f, t))
 }
 
 fn source_from_url(url: &str) -> FeedSource {
@@ -80,19 +76,13 @@ async fn poll_loop(
 
     loop {
         ticker.tick().await;
-
         for url in &urls {
-            match fetch_and_parse(&client, url).await {
-                Ok(entries) if !entries.is_empty() => {
-                    if tx.send(AppEvent::NewEntries(entries)).is_err() {
-                        return;
-                    }
-                }
-                Ok(_) => {} // empty feed, skip
-                Err(_) => {
-                    if tx.send(AppEvent::Error).is_err() { return; }
-                }
-            }
+            let evt = match fetch_and_parse(&client, url).await {
+                Ok(entries) if !entries.is_empty() => AppEvent::NewEntries(entries),
+                Ok(_) => continue,
+                Err(_) => AppEvent::Error,
+            };
+            if tx.send(evt).is_err() { return; }
         }
     }
 }
