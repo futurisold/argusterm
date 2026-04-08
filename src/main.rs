@@ -38,6 +38,7 @@ fn handle_shared(
                 let e = &mut state.entries[i];
                 e.llm_summary = None;
                 e.ascii_diagram = None;
+                e.chokepoint_analysis = None;
                 e.relevance_score = None;
                 e.cve_ids.clear();
                 e.scraped_content = None;
@@ -226,6 +227,7 @@ async fn main() -> Result<()> {
                     };
                     entry.llm_summary = Some(u.summary);
                     entry.ascii_diagram = Some(u.ascii_diagram);
+                    entry.chokepoint_analysis = Some(u.chokepoint_analysis);
                     entry.relevance_score = Some(u.relevance_score);
                     entry.cve_ids = u.cve_ids;
                     if u.scraped_content.is_some() {

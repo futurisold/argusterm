@@ -88,11 +88,15 @@ fn entry_to_cve(entry: &feed_rs::model::Entry, source: FeedSource) -> CveEntry {
         title,
         description,
         severity: None,
-        published: entry.published.unwrap_or_else(Utc::now),
+        // Many Atom feeds (and some RSS feeds) populate `updated` but not `published`.
+        // Prefer `published`, fall back to `updated`, only use Utc::now() as last resort
+        // so the in-memory and DB ordering reflects the real publication moment.
+        published: entry.published.or(entry.updated).unwrap_or_else(Utc::now),
         source,
         url: entry.links.first().map(|l| l.href.clone()),
         llm_summary: None,
         ascii_diagram: None,
+        chokepoint_analysis: None,
         relevance_score: None,
         scraped_content: None,
         cve_ids: Vec::new(),

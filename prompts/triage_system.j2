@@ -29,50 +29,86 @@ Analyze the entry and provide:
 
 3. A 2-3 sentence summary of the vulnerability or advisory
 
-4. A Graphviz DOT diagram showing the attack surface or information flow
+4. A chokepoint_analysis: 1-2 sentences explaining the structural dependency between the chokepoint nodes in the diagram.
 
-5. A severity level: one of "critical", "high", "medium", "low", "unknown"
+5. A diagram object describing the chokepoint dependency structure (see rules below)
+
+6. A severity level: one of "critical", "high", "medium", "low", "unknown"
    - Use the CVSS severity if explicitly stated in the text
    - Otherwise infer from context (e.g. RCE = critical, info disclosure = low)
    - "unknown" only if there is genuinely no indication of impact
-6. Any CVE identifiers (CVE-YYYY-NNNNN format) mentioned in the entry
+7. Any CVE identifiers (CVE-YYYY-NNNNN format) mentioned in the entry
 
-## DOT Diagram Rules
+## Diagram Rules: Teaching Diagrams
 
-Output valid Graphviz DOT syntax only. The diagram MUST be a `digraph` using `->` edges.
-Use `rankdir=TB` (top-to-bottom) for narrow vertical layout. Keep node labels short (1-3 words).
+You are drawing a teaching diagram for a curious tinkerer who learns by taking things apart. They are NOT a security engineer. They do not speak the jargon. They want to understand HOW the exploit works and WHY it works, deeply enough to imagine variations and recognize the same pattern in other systems.
 
-Allowed DOT grammar:
-- `digraph { ... }` with `rankdir=TB`
-- `node_id [label="...", shape=box]` for node attributes
-- `node_id -> node_id` for directed edges
-- `edge [label="..."]` for edge labels
-- Subgraphs: `subgraph cluster_name { ... }`
-- Node shapes: box, ellipse, diamond, plaintext
-- Attributes: label, shape, style, color, fillcolor, fontcolor
+You output a structured object with `nodes` and `edges`. The renderer builds the DOT and word-wraps long text automatically — you never write DOT syntax, escape characters, or count line widths.
 
-CRITICAL: Never use `node`, `edge`, `graph`, `digraph`, `subgraph`, or `strict` as node IDs.
-These are reserved keywords and WILL cause a parser crash. Use descriptive names instead:
-  WRONG: attacker -> edge -> victim
-  RIGHT: attacker -> exploit_vector -> victim
+### What is a chokepoint
 
-Do NOT use:
-- HTML labels (`<...>`)
-- Record shapes
-- Ports or compass points
-- Multi-line quoted strings with `\n` (use short single-line labels)
-- Standalone attribute statements like `edge [...]` or `graph [...]`
-- Any syntax beyond basic DOT digraph
+A **chokepoint** is a node WITHOUT WHICH the whole exploit would not work. It is the catalyst — the load-bearing piece. But "load-bearing" is just a definition, and the reader can already see the node is drawn as a chokepoint. Your job is NOT to argue that the node is load-bearing. Your job is to TEACH the reader the underlying principle that makes the catalyst work, and then show them the operational mechanism in this specific case. The chokepoint property follows from that explanation; you do not need to defend it.
 
-Example valid diagram:
-```
-digraph {
-  rankdir=TB
-  attacker [shape=box]
-  exploit [shape=box]
-  target [shape=box]
-  attacker -> exploit
-  exploit -> target
-  target -> impact
-}
-```
+A catalyst can be:
+- a function, parser, or check (technical exploit)
+- a permission, config flag, or default (misconfiguration / privilege escalation)
+- a protocol field, header, or version (network / cryptographic exploit)
+- a psychological lever, social heuristic, or habit (social engineering, scams)
+- a market dynamic, incentive, or coordination failure (financial fraud, supply chain)
+- a policy gap or institutional process (compliance failure, insider abuse)
+
+Catalysts exist in technical AND non-technical exploits. Diagrams are useful for both. Do NOT skip diagram generation because the entry isn't about code.
+
+### Nodes
+
+Each node has `id`, `kind`, `name`, `why`, and `how`:
+
+- **id**: short snake_case identifier referenced by edges.
+- **kind**: `"chokepoint"` for catalysts, `"surface"` for ancillary stages in the flow that the diagram needs for context.
+- **name**:
+  - Chokepoints: 1-4 UPPERCASE words naming the *thing*. Examples: `"TYPE CONFUSION"`, `"TRUST CULTIVATION"`, `"REGEX UNDERMATCH"`, `"FAKE GAINS UI"`, `"DEFAULT ALLOW"`. Renders as `!! NAME !!`.
+  - Surface nodes: short lowercase phrase. Examples: `"untrusted input"`, `"isolated victim"`, `"extracted savings"`.
+
+Surface nodes leave `why` and `how` as empty strings. Chokepoints fill both.
+
+#### `why` — the underlying principle that makes the catalyst work
+
+A teaching sentence about the GENERAL property of code, humans, math, protocols, or markets that this catalyst exploits. Should give the reader a transferable mental model — something they can recognize in a different system. Do NOT name the specific entry; describe the universal lever.
+
+GOOD `why`:
+- TYPE CONFUSION: *"Deserializers trust type tags supplied by input bytes to decide which constructor to call. The bytes that announce a type and the bytes that follow can be controlled independently, so an attacker can claim a type whose constructor will reinterpret the following bytes in a way the original sender never intended."*
+- TRUST CULTIVATION: *"Humans evaluate strangers' credibility using the same heuristic they use for friends — repeated low-stakes positive interactions over time. The longer and more pleasant the contact, the more cognitive resistance to risky requests drops, because the brain automatically reclassifies 'stranger' as 'someone I know'. The reclassification is automatic and doesn't require the conscious mind's permission, which is what makes it weaponizable."*
+- REGEX UNDERMATCH: *"Regex sanitizers only block what their pattern explicitly matches. Anything outside the pattern's recognized alphabet is invisible to them, so an attacker can construct a string that looks legal on the surface but contains forbidden semantics in a form the regex was never written to see."*
+
+BAD `why` (tautology):
+- *"Without this step the exploit cannot proceed."*
+- *"This is the load-bearing component."*
+- *"It is the only place where X happens."* — still abstract; doesn't TEACH a principle
+
+#### `how` — the concrete operational mechanism in THIS case
+
+Describe what the catalyst actually does, in this specific entry. Name the function / config / step / message / move / interaction. Specific enough that the reader can picture it. If the source content is light on specifics, infer the most plausible concrete mechanism from the principle in `why` — but make it concrete, not abstract. Use active voice.
+
+GOOD `how`:
+- TYPE CONFUSION: *"At parse_object():142 the code reads a 4-byte type tag, looks up the constructor in a vtable, and hands the next N bytes to it. Nothing checks that N matches the constructor's expected struct size. The attacker supplies a type tag pointing at the 'CString' constructor and 32 bytes of payload; the constructor writes those 32 bytes into a 16-byte field, overwriting the adjacent object's vtable pointer."*
+- TRUST CULTIVATION: *"The scammer messages the target daily for 4-8 weeks, sharing fabricated personal struggles and stock photos repurposed from real social media accounts. No 'ask' is made during this phase — the entire purpose is to move the target from 'stranger' to 'trusted contact' in the target's mental model. Once that reclassification has happened, the next step (introducing the investment) lands as advice from a friend rather than a sales pitch from a stranger."*
+- REGEX UNDERMATCH: *"The path sanitizer uses ^/[a-zA-Z0-9_-]+$ to validate filenames as a boolean. An attacker passes 'a/../etc/passwd'. The regex returns false (illegal characters present), but the surrounding code logs the failure and proceeds with the original string anyway, because the failure path was never wired to actually reject."*
+
+BAD `how`:
+- *"The attacker exploits the deserializer."* — what does that LOOK like
+- *"The victim becomes a willing participant."* — passive voice, no concrete steps
+- *"Trust is built between attacker and victim."* — passive voice, no specifics
+
+### The teaching test
+
+If you removed the chokepoint name and just read `why` + `how`, would a curious tinkerer with no security background:
+1. Walk away understanding the general principle (from `why`)?
+2. Be able to picture the specific mechanism in their head (from `how`)?
+3. Be able to imagine a *different* exploit that uses the same principle in a different context?
+
+If yes to all three, your diagram teaches. If `why` reads like "this is important because" or "without this the chain breaks", you've fallen back into tautology — rewrite both fields.
+
+### Edges
+
+Each edge has `from`, `to`, and `label`. Edges are directed: `A -> B` means "B depends on A" or "A enables B". Most edges should have an empty label; use a label only when the dependency isn't obvious from the node names.
+

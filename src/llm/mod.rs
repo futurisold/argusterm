@@ -1,3 +1,4 @@
+use std::fmt::Write as _;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -48,8 +49,38 @@ struct TriageResult {
     relevance_score: f32,
     severity: String,
     summary: String,
-    dot_diagram: String,
+    chokepoint_analysis: String,
+    diagram: Diagram,
     cve_ids: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct Diagram {
+    nodes: Vec<DiagramNode>,
+    edges: Vec<DiagramEdge>,
+}
+
+#[derive(Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+enum NodeKind {
+    Chokepoint,
+    Surface,
+}
+
+#[derive(Deserialize)]
+struct DiagramNode {
+    id: String,
+    kind: NodeKind,
+    name: String,
+    why: String,
+    how: String,
+}
+
+#[derive(Deserialize)]
+struct DiagramEdge {
+    from: String,
+    to: String,
+    label: String,
 }
 
 #[derive(Deserialize)]
@@ -128,6 +159,125 @@ async fn scrape_url(client: &reqwest::Client, api_key: &str, url: &str) -> anyho
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string())
         .ok_or_else(|| anyhow::anyhow!("no content from Parallel.ai"))
+}
+
+// graph-easy renders each box exactly as wide as the longest line in its label and only
+// treats the literal escape sequence \n as a line break. The LLM emits structured JSON
+// (Diagram), Rust constructs the DOT here, and we wrap chokepoint `why` text at word
+// boundaries before serializing — so the LLM never has to count characters or format DOT.
+const MAX_LABEL_LINE: usize = 45;
+
+fn build_dot(diagram: &Diagram) -> String {
+    let mut out = String::from("digraph {\n  rankdir=TB\n");
+    for node in &diagram.nodes {
+        let id = sanitize_id(&node.id);
+        match node.kind {
+            NodeKind::Chokepoint => {
+                let label = chokepoint_label(&node.name, &node.why, &node.how);
+                writeln!(out, "  {id} [shape=box label=\"{label}\" style=bold]")
+                    .expect("write to String is infallible");
+            }
+            NodeKind::Surface => {
+                let label = escape_dot(&node.name);
+                writeln!(out, "  {id} [shape=box label=\"{label}\"]")
+                    .expect("write to String is infallible");
+            }
+        }
+    }
+    for edge in &diagram.edges {
+        let from = sanitize_id(&edge.from);
+        let to = sanitize_id(&edge.to);
+        if edge.label.is_empty() {
+            writeln!(out, "  {from} -> {to}").expect("write to String is infallible");
+        } else {
+            let label = escape_dot(&edge.label);
+            writeln!(out, "  {from} -> {to} [label=\"{label}\"]")
+                .expect("write to String is infallible");
+        }
+    }
+    out.push('}');
+    out
+}
+
+// Builds a chokepoint label as `!! NAME !!\n<wrapped why>\n<wrapped how>`. The DOT escape
+// `\n` is two characters (backslash + n) — graph-easy treats it as a line break. `why`
+// (the underlying principle) and `how` (the operational mechanism) are kept as separate
+// paragraph blocks so the box visually teaches "the lever" above "how the lever pulls".
+fn chokepoint_label(name: &str, why: &str, how: &str) -> String {
+    let mut lines = vec![format!("!! {} !!", name.trim())];
+    let why = why.trim();
+    if !why.is_empty() {
+        lines.extend(wrap_text(why, MAX_LABEL_LINE));
+    }
+    let how = how.trim();
+    if !how.is_empty() {
+        lines.extend(wrap_text(how, MAX_LABEL_LINE));
+    }
+    lines
+        .into_iter()
+        .map(|l| escape_dot(&l))
+        .collect::<Vec<_>>()
+        .join("\\n")
+}
+
+// Word-wraps plain text to `max_width` chars at whitespace boundaries. Single words longer
+// than `max_width` are emitted on their own line (no mid-word breaks). Callers must pass
+// non-empty input — `chokepoint_label` already gates with `is_empty()` checks.
+fn wrap_text(text: &str, max_width: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut current = String::new();
+    let mut current_len = 0usize;
+    for word in text.split_whitespace() {
+        let word_len = word.chars().count();
+        if current_len == 0 {
+            current.push_str(word);
+            current_len = word_len;
+        } else if current_len + 1 + word_len > max_width {
+            lines.push(std::mem::take(&mut current));
+            current.push_str(word);
+            current_len = word_len;
+        } else {
+            current.push(' ');
+            current.push_str(word);
+            current_len += 1 + word_len;
+        }
+    }
+    if !current.is_empty() {
+        lines.push(current);
+    }
+    lines
+}
+
+// Escapes a string for inclusion inside a DOT double-quoted label.
+fn escape_dot(s: &str) -> String {
+    s.replace('\\', r"\\").replace('"', "\\\"")
+}
+
+// Replaces any non-alphanumeric/underscore chars with `_`, then prefixes `n_` only when
+// necessary: ids that are empty, start with a digit, or collide with a DOT reserved word.
+// Otherwise the id passes through unchanged so generated DOT stays readable.
+fn sanitize_id(id: &str) -> String {
+    let cleaned: String = id
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let needs_prefix = cleaned.is_empty()
+        || cleaned.chars().next().is_some_and(|c| c.is_ascii_digit())
+        || matches!(
+            cleaned.as_str(),
+            "node" | "edge" | "graph" | "digraph" | "subgraph" | "strict"
+        );
+    if needs_prefix {
+        format!("n_{cleaned}")
+    } else {
+        cleaned
+    }
 }
 
 async fn render_dot(dot: &str, graph_easy_bin: &str, perl5lib: &str) -> anyhow::Result<String> {
@@ -420,7 +570,8 @@ async fn triage_one(
             result.content_type, result.relevance_score, result.severity
         ),
     );
-    let diagram = render_dot(&result.dot_diagram, &deps.graph_easy_bin, &deps.perl5lib)
+    let dot = build_dot(&result.diagram);
+    let diagram = render_dot(&dot, &deps.graph_easy_bin, &deps.perl5lib)
         .await
         .unwrap_or_else(|e| format!("(diagram render failed: {e})"));
     let cached = (!ctx_final.is_empty() && ctx_final != entry.description).then_some(ctx_final);
@@ -448,6 +599,7 @@ async fn triage_loop(
                     severity: r.severity,
                     summary: r.summary,
                     ascii_diagram: diagram,
+                    chokepoint_analysis: r.chokepoint_analysis,
                     relevance_score: r.relevance_score,
                     cve_ids: r.cve_ids,
                     scraped_content: scraped,

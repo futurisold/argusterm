@@ -30,6 +30,7 @@ pub struct LlmUpdate {
     pub severity: String,
     pub summary: String,
     pub ascii_diagram: String,
+    pub chokepoint_analysis: String,
     pub relevance_score: f32,
     pub cve_ids: Vec<String>,
     pub scraped_content: Option<String>,
@@ -207,7 +208,7 @@ pub fn render(frame: &mut Frame, state: &mut AppState) {
 
     // --- Feed list ---
     state.list_height = left[0].height.saturating_sub(2) as usize;
-    let title_max = (outer[0].width as usize).saturating_sub(24);
+    let title_max = (outer[0].width as usize).saturating_sub(33);
     let left_borders = Borders::TOP | Borders::LEFT | Borders::BOTTOM;
     let feed_block = border_block(
         " CVE FEED ",
@@ -234,7 +235,7 @@ pub fn render(frame: &mut Frame, state: &mut AppState) {
                     source_color(cve.source),
                 ),
                 s(
-                    format!("{} ", cve.published.format("%m-%d")),
+                    format!("{} ", cve.published.format("%y-%m-%d %H:%M")),
                     Color::DarkGray,
                 ),
                 Span::raw(title),
@@ -310,7 +311,7 @@ pub fn render(frame: &mut Frame, state: &mut AppState) {
                 ),
                 Span::raw("  "),
                 s(cve.source.label().into(), source_color(cve.source)),
-                Span::raw(format!("  {}  ", cve.published.format("%Y-%m-%d"))),
+                Span::raw(format!("  {}  ", cve.published.format("%y-%m-%d %H:%M"))),
                 s(
                     cve.content_type.as_deref().unwrap_or("").into(),
                     Color::DarkGray,
@@ -353,6 +354,13 @@ pub fn render(frame: &mut Frame, state: &mut AppState) {
             lines.push(Line::from(s("── Summary ──".into(), Color::Yellow)));
             for l in word_wrap(cve.llm_summary.as_deref().unwrap_or(""), dw) {
                 lines.push(Line::from(l));
+            }
+            if let Some(analysis) = &cve.chokepoint_analysis {
+                lines.push(Line::from(""));
+                lines.push(Line::from(s("── Chokepoints ──".into(), Color::Red)));
+                for l in word_wrap(analysis, dw) {
+                    lines.push(Line::from(l));
+                }
             }
             if let Some(diagram) = &cve.ascii_diagram {
                 lines.push(Line::from(""));

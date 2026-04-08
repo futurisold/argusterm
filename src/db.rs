@@ -25,6 +25,7 @@ impl Db {
             "scraped_content TEXT",
             "cve_ids TEXT DEFAULT '[]'",
             "content_type TEXT",
+            "chokepoint_analysis TEXT",
         ] {
             let _ = conn.execute(&format!("ALTER TABLE entries ADD COLUMN {col}"), []);
         }
@@ -63,7 +64,7 @@ impl Db {
         let mut stmt = self.conn.prepare(
             "SELECT id, title, description, severity, published, source,
                     url, llm_summary, ascii_diagram, relevance_score,
-                    scraped_content, cve_ids, content_type
+                    scraped_content, cve_ids, content_type, chokepoint_analysis
              FROM entries WHERE published >= ?1 ORDER BY published DESC",
         )?;
         let rows = stmt.query_map(params![cutoff], |row| {
@@ -90,6 +91,7 @@ impl Db {
                 scraped_content: row.get(10)?,
                 cve_ids: serde_json::from_str(&cve_raw).unwrap_or_default(),
                 content_type: row.get(12)?,
+                chokepoint_analysis: row.get(13)?,
             })
         })?;
         Ok(rows.filter_map(|r| r.ok()).collect())
@@ -99,14 +101,15 @@ impl Db {
         self.conn.execute(
             "INSERT INTO entries (id, title, description, severity, published, source, url,
                                   llm_summary, ascii_diagram, relevance_score,
-                                  scraped_content, cve_ids, content_type)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                                  scraped_content, cve_ids, content_type, chokepoint_analysis)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
              ON CONFLICT(id) DO UPDATE SET
                 title=excluded.title, description=excluded.description, severity=excluded.severity,
                 published=excluded.published, source=excluded.source, url=excluded.url,
                 llm_summary=excluded.llm_summary, ascii_diagram=excluded.ascii_diagram,
                 relevance_score=excluded.relevance_score, scraped_content=excluded.scraped_content,
-                cve_ids=excluded.cve_ids, content_type=excluded.content_type",
+                cve_ids=excluded.cve_ids, content_type=excluded.content_type,
+                chokepoint_analysis=excluded.chokepoint_analysis",
             params![
                 e.id,
                 e.title,
@@ -121,6 +124,7 @@ impl Db {
                 e.scraped_content,
                 serde_json::to_string(&e.cve_ids)?,
                 e.content_type,
+                e.chokepoint_analysis,
             ],
         )?;
         Ok(())
@@ -150,7 +154,7 @@ impl Db {
 
     pub fn clear_llm(&self, id: &str) -> anyhow::Result<()> {
         self.conn.execute(
-            "UPDATE entries SET llm_summary=NULL, ascii_diagram=NULL, relevance_score=NULL, cve_ids='[]', scraped_content=NULL WHERE id=?1",
+            "UPDATE entries SET llm_summary=NULL, ascii_diagram=NULL, relevance_score=NULL, cve_ids='[]', scraped_content=NULL, chokepoint_analysis=NULL WHERE id=?1",
             params![id],
         )?;
         Ok(())

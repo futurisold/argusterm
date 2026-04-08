@@ -19,9 +19,61 @@
       "type": "string",
       "description": "2-3 sentence vulnerability analysis"
     },
-    "dot_diagram": {
+    "chokepoint_analysis": {
       "type": "string",
-      "description": "Graphviz DOT digraph showing the attack surface. Use rankdir=TB, short labels, box shapes."
+      "description": "1-2 sentences: structural dependency between chokepoints — which depend on each other and what collapses if the most critical one is removed. Not a per-node list."
+    },
+    "diagram": {
+      "type": "object",
+      "description": "Chokepoint dependency graph as structured nodes and edges. Rust constructs the DOT and renders it via graph-easy.",
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Short snake_case identifier used in edges. Must not be a DOT reserved word (node, edge, graph, digraph, subgraph, strict)."
+              },
+              "kind": {
+                "type": "string",
+                "enum": ["chokepoint", "surface"],
+                "description": "chokepoint = load-bearing (removing it collapses the exploit). surface = ancillary stage in the flow."
+              },
+              "name": {
+                "type": "string",
+                "description": "Short human-readable name for the catalyst. For chokepoints, 1-4 UPPERCASE words naming the *thing* (e.g. 'TYPE CONFUSION', 'TRUST CULTIVATION', 'REGEX UNDERMATCH'). For surface nodes, a brief lowercase phrase."
+              },
+              "why": {
+                "type": "string",
+                "description": "For chokepoints only: a teaching sentence about the GENERAL underlying principle that makes this catalyst work. Should describe the universal property of code, humans, math, protocols, or markets that the catalyst exploits — written so a non-expert reader walks away with a transferable mental model. Do NOT restate that the node is a chokepoint ('without this the exploit fails'). Do NOT reference the specific entry ('this CVE shows...'). Describe the LEVER. Empty string for surface nodes."
+              },
+              "how": {
+                "type": "string",
+                "description": "For chokepoints only: the concrete operational mechanism in THIS specific case. Name the function, config, message, move, step, or interaction. Specific enough that the reader can picture it happening. If source content is light on detail, infer the most plausible concrete mechanism that fits the principle in `why`. Do NOT use passive voice or abstract verbs ('trust is built', 'the attacker exploits'). Empty string for surface nodes."
+              }
+            },
+            "required": ["id", "kind", "name", "why", "how"],
+            "additionalProperties": false
+          }
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "from": { "type": "string", "description": "Source node id." },
+              "to": { "type": "string", "description": "Target node id." },
+              "label": { "type": "string", "description": "Optional short edge label. Empty string for unlabeled edges." }
+            },
+            "required": ["from", "to", "label"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["nodes", "edges"],
+      "additionalProperties": false
     },
     "cve_ids": {
       "type": "array",
@@ -29,6 +81,6 @@
       "description": "CVE identifiers (CVE-YYYY-NNNNN) mentioned. Empty array if none."
     }
   },
-  "required": ["content_type", "relevance_score", "severity", "summary", "dot_diagram", "cve_ids"],
+  "required": ["content_type", "relevance_score", "severity", "summary", "chokepoint_analysis", "diagram", "cve_ids"],
   "additionalProperties": false
 }

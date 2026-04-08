@@ -7,7 +7,7 @@
 
 > **Disclaimer:** this is a personal project so some choices reflect that — e.g. using Anthropic / Parallel among others. Feel free to fork the project and adapt it to your needs.
 
-Polls 16 RSS/Atom feeds, scrapes full article content, triages entries via a two-model LLM pipeline (Haiku for structured extraction, Sonnet for triage) with authoritative NVD enrichment for single-CVE entries, generates ASCII attack-surface diagrams, and renders everything in a ratatui TUI with persistent SQLite caching.
+Polls 16 RSS/Atom feeds, scrapes full article content, triages entries via a two-model LLM pipeline (Haiku for structured extraction, Sonnet for triage) with authoritative NVD enrichment for single-CVE entries, generates ASCII teaching diagrams that decompose each exploit into chokepoint dependencies (with `why` the catalyst works and `how` it operates in this case), and renders everything in a ratatui TUI with persistent SQLite caching.
 
 ## Architecture
 
@@ -22,9 +22,11 @@ RSS/Atom Feeds (16)
                                                          rationale-first structured JSON)
             → Parallel.ai scrape the chosen reference
         → Sonnet llm_summarize: triage (primary + nvd + hop concatenated)
-          → content classification · relevance score · severity · DOT attack diagram
-            → graph-easy: DOT → ASCII
-              → SQLite cache → ratatui TUI
+          → content_type · relevance score · severity · summary · chokepoint_analysis
+            · structured Diagram { nodes, edges } with why/how on each chokepoint
+            → Rust builds DOT from the typed Diagram (word-wraps labels deterministically)
+              → graph-easy: DOT → ASCII
+                → SQLite cache → ratatui TUI
 ```
 
 The pipeline is fail-open at every step: if any scrape, extraction, or hop fails, the summarize call still runs with whatever context is available (at minimum the RSS title + description). Multi-CVE entries (news roundups, patch bundles, research chains) skip the NVD hop chain entirely — enriching one CVE from a bundle would bias the summary — and summarize runs on the primary scrape alone.
@@ -81,7 +83,7 @@ poll_interval_secs = 300       # feed poll interval (seconds)
 
 [llm]
 model_extract = "claude-haiku-4-5-20251001"  # Haiku: fast structured extraction (CVE ids, ref URL picking)
-model_summarize = "claude-sonnet-4-6"         # Sonnet: main triage — summary, DOT diagram, scoring
+model_summarize = "claude-sonnet-4-6"         # Sonnet: main triage — summary, chokepoint analysis, teaching diagram, scoring
 api_key = "your-anthropic-api-key"
 max_concurrent = 20                           # concurrent triage tasks
 
@@ -117,9 +119,9 @@ The `days_lookback` setting controls both which cached entries are loaded on sta
 
 All state lives in `.argusterm/cache.db` (SQLite) across three tables:
 
-- **`entries`** — every ingested feed item with its LLM triage output (summary, diagram, score, CVE ids, scraped content). On restart, rows within `days_lookback` load instantly; only entries missing LLM results are re-triaged.
+- **`entries`** — every ingested feed item with its LLM triage output (summary, chokepoint analysis, ASCII diagram, score, CVE ids, scraped content). On restart, rows within `days_lookback` load instantly; only entries missing LLM results are re-triaged.
 - **`cve_hop_cache`** — CVE-id-keyed cache of the reference URL the picker chose for each CVE and the scraped content of that page. When a single-CVE entry is triaged and the same CVE id has been seen before, the pipeline reuses the cached hop content and skips the NVD scrape, the `pick_ref` Haiku call, and the reference scrape entirely. Cross-feed CVE duplicates (e.g. the same kernel CVE showing up in MSRC *and* CISA) become cheap. NVD itself is intentionally not cached — the record matures over time — but the picked reference URL is stable once chosen.
 - **`deleted_entries`** — tombstone table. Pressing `x` inserts the entry's id here in addition to removing it from `entries`, so the next feed poll's dedup check skips the id instead of re-ingesting it. Deletion is **permanent** across feed polls and app restarts. Recovery requires a manual `DELETE FROM deleted_entries WHERE id = '...'` if you hit `x` by mistake.
 
-Pressing `r` on an entry clears all cached LLM output (summary, diagram, score, CVE ids) **and** the scraped content used as input, so re-triage truly restarts the pipeline from scratch. The hop cache in `cve_hop_cache` is *not* cleared by `r` — if the entry has a single CVE id that's already in the cache, re-triage still reuses the cached hop. Nuke the DB with `argus --nuke-db` if you want a clean slate.
+Pressing `r` on an entry clears all cached LLM output (summary, chokepoint analysis, diagram, score, CVE ids) **and** the scraped content used as input, so re-triage truly restarts the pipeline from scratch. The hop cache in `cve_hop_cache` is *not* cleared by `r` — if the entry has a single CVE id that's already in the cache, re-triage still reuses the cached hop. Nuke the DB with `argus --nuke-db` if you want a clean slate.
 

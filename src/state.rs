@@ -136,6 +136,7 @@ pub struct CveEntry {
     pub url: Option<String>,
     pub llm_summary: Option<String>,
     pub ascii_diagram: Option<String>,
+    pub chokepoint_analysis: Option<String>,
     pub relevance_score: Option<f32>,
     pub scraped_content: Option<String>,
     pub cve_ids: Vec<String>,
