@@ -321,9 +321,10 @@ async fn call_json<T: serde::de::DeserializeOwned>(
         "messages": [{"role": "user", "content": user}],
         "output_config": {"format": {"type": "json_schema", "schema": serde_json::from_str::<Value>(schema_src)?}},
     });
-    // Adaptive thinking is only supported on Sonnet/Opus 4.6 — Haiku 4.5 hard-rejects it.
+    // Adaptive thinking and effort are only supported on Sonnet/Opus 4.6 — Haiku 4.5 hard-rejects both.
     if !model.contains("haiku") {
         body["thinking"] = json!({"type": "adaptive"});
+        body["output_config"]["effort"] = json!("high");
     }
     let resp = client
         .post("https://api.anthropic.com/v1/messages")
@@ -570,7 +571,10 @@ async fn triage_one(
         &format!("{} chars (primary+nvd+hop)", ctx_final.len()),
     );
 
-    let result = summarize(deps, entry, &ctx_final).await?;
+    let result = summarize(deps, entry, &ctx_final).await.map_err(|e| {
+        tlog(&entry.id, "sum_err", &format!("{e:#}"));
+        e
+    })?;
     tlog(
         &entry.id,
         "done",
