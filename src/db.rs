@@ -26,9 +26,17 @@ impl Db {
             "cve_ids TEXT DEFAULT '[]'",
             "content_type TEXT",
             "chokepoint_analysis TEXT",
+            "indexed_at TEXT",
         ] {
             let _ = conn.execute(&format!("ALTER TABLE entries ADD COLUMN {col}"), []);
         }
+        // NOTE: backfill legacy rows missing indexed_at by reusing `published` as a best-effort
+        // proxy so pre-migration entries retain a coherent order instead of collapsing to a
+        // single timestamp. A no-op once every row has a non-NULL indexed_at.
+        let _ = conn.execute(
+            "UPDATE entries SET indexed_at = published WHERE indexed_at IS NULL",
+            [],
+        );
         Ok(Self { conn })
     }
 
@@ -64,12 +72,23 @@ impl Db {
         let mut stmt = self.conn.prepare(
             "SELECT id, title, description, severity, published, source,
                     url, llm_summary, ascii_diagram, relevance_score,
-                    scraped_content, cve_ids, content_type, chokepoint_analysis
-             FROM entries WHERE published >= ?1 ORDER BY published DESC",
+                    scraped_content, cve_ids, content_type, chokepoint_analysis,
+                    indexed_at
+             FROM entries WHERE published >= ?1 ORDER BY indexed_at DESC",
         )?;
         let rows = stmt.query_map(params![cutoff], |row| {
             let sev: String = row.get::<_, String>(3).unwrap_or_default();
             let cve_raw: String = row.get::<_, String>(11).unwrap_or_else(|_| "[]".into());
+            let published = row
+                .get::<_, String>(4)?
+                .parse::<DateTime<Utc>>()
+                .unwrap_or_else(|_| Utc::now());
+            // NOTE: indexed_at is optional on legacy rows where the backfill may have failed;
+            // fall back to `published` so the natural list order stays coherent.
+            let indexed_at = row
+                .get::<_, Option<String>>(14)?
+                .and_then(|s| s.parse::<DateTime<Utc>>().ok())
+                .unwrap_or(published);
             Ok(CveEntry {
                 id: row.get(0)?,
                 title: row.get(1)?,
@@ -79,10 +98,8 @@ impl Db {
                 } else {
                     Some(sev)
                 },
-                published: row
-                    .get::<_, String>(4)?
-                    .parse::<DateTime<Utc>>()
-                    .unwrap_or_else(|_| Utc::now()),
+                published,
+                indexed_at,
                 source: parse_source(&row.get::<_, String>(5)?),
                 url: row.get(6)?,
                 llm_summary: row.get(7)?,
@@ -98,11 +115,14 @@ impl Db {
     }
 
     pub fn upsert_entry(&self, e: &CveEntry) -> anyhow::Result<()> {
+        // NOTE: `indexed_at` is deliberately omitted from the DO UPDATE clause so that
+        // later upserts (LlmResult, refreshes) preserve the original first-ingest timestamp.
         self.conn.execute(
             "INSERT INTO entries (id, title, description, severity, published, source, url,
                                   llm_summary, ascii_diagram, relevance_score,
-                                  scraped_content, cve_ids, content_type, chokepoint_analysis)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+                                  scraped_content, cve_ids, content_type, chokepoint_analysis,
+                                  indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
              ON CONFLICT(id) DO UPDATE SET
                 title=excluded.title, description=excluded.description, severity=excluded.severity,
                 published=excluded.published, source=excluded.source, url=excluded.url,
@@ -125,6 +145,7 @@ impl Db {
                 serde_json::to_string(&e.cve_ids)?,
                 e.content_type,
                 e.chokepoint_analysis,
+                e.indexed_at.to_rfc3339(),
             ],
         )?;
         Ok(())

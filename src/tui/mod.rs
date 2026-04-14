@@ -11,7 +11,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use crate::doomflame::{render_flames, FLAME_TOP_H, FLAME_W, SUBTITLE};
+use crate::doomflame::{FLAME_TOP_H, FLAME_W, SUBTITLE, render_flames};
 use crate::state::{AppState, CveEntry, FeedSource, Pane};
 
 #[derive(Debug)]
@@ -161,7 +161,11 @@ fn word_wrap(text: &str, width: usize) -> Vec<String> {
 }
 
 fn border_block(title: &str, active: Pane, this: Pane, borders: Borders) -> Block<'_> {
-    let color = if active == this { Color::Cyan } else { Color::DarkGray };
+    let color = if active == this {
+        Color::Cyan
+    } else {
+        Color::DarkGray
+    };
     Block::default()
         .title(title)
         .borders(borders)
@@ -203,9 +207,15 @@ pub fn render(frame: &mut Frame, state: &mut AppState) {
         .split(outer[0]);
 
     // left/right flames span the full body height (quote strip + canvas)
-    state.flame_top.resize(top_area.width as usize, top_area.height as usize);
-    state.flame_left.resize(left_margin.width as usize, left_margin.height as usize);
-    state.flame_right.resize(right_margin.width as usize, right_margin.height as usize);
+    state
+        .flame_top
+        .resize(top_area.width as usize, top_area.height as usize);
+    state
+        .flame_left
+        .resize(left_margin.width as usize, left_margin.height as usize);
+    state
+        .flame_right
+        .resize(right_margin.width as usize, right_margin.height as usize);
 
     render_flames(frame, top_area, &state.flame_top);
     render_flames(frame, left_margin, &state.flame_left);
@@ -433,7 +443,9 @@ pub fn render(frame: &mut Frame, state: &mut AppState) {
         s(status, Color::DarkGray),
         Span::styled(
             format!(" • \"{SUBTITLE}\""),
-            Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+            Style::default()
+                .fg(Color::DarkGray)
+                .add_modifier(Modifier::ITALIC),
         ),
     ]);
     frame.render_widget(Paragraph::new(status_line), root[1]);

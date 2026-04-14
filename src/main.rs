@@ -191,7 +191,7 @@ async fn main() -> Result<()> {
                 needs_draw = true;
             }
             AppEvent::NewEntries(entries) => {
-                // NOTE: preserve selection by id — inserting in date-desc order shifts indices
+                // NOTE: preserve selection by id — inserting shifts indices under the selection.
                 let selected_id = state
                     .selected_entry_index()
                     .map(|i| state.entries[i].id.clone());
@@ -205,8 +205,11 @@ async fn main() -> Result<()> {
                     if !state.entries.iter().any(|x| x.id == e.id) {
                         let _ = db.upsert_entry(&e);
                         let _ = llm_tx.send(e.clone());
-                        // NOTE: maintain published-desc invariant so new items appear at the top of the feed list
-                        let pos = state.entries.partition_point(|x| x.published > e.published);
+                        // NOTE: maintain indexed-desc invariant so freshly ingested items
+                        // land at the top of the feed list regardless of `published`.
+                        let pos = state
+                            .entries
+                            .partition_point(|x| x.indexed_at > e.indexed_at);
                         state.entries.insert(pos, e);
                     }
                 }

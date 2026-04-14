@@ -92,6 +92,10 @@ fn entry_to_cve(entry: &feed_rs::model::Entry, source: FeedSource) -> CveEntry {
         // Prefer `published`, fall back to `updated`, only use Utc::now() as last resort
         // so the in-memory and DB ordering reflects the real publication moment.
         published: entry.published.or(entry.updated).unwrap_or_else(Utc::now),
+        // NOTE: provisional indexed_at — only the value attached to the first ingestion
+        // (dedup in main.rs) is ever persisted or rendered; re-polls of the same id get
+        // fresh values here but are discarded.
+        indexed_at: Utc::now(),
         source,
         url: entry.links.first().map(|l| l.href.clone()),
         llm_summary: None,

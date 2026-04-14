@@ -1,12 +1,11 @@
+use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::Color;
-use ratatui::Frame;
 
 pub const FLAME_W: u16 = 7;
 pub const FLAME_TOP_H: u16 = 4;
 
-pub const SUBTITLE: &str =
-    "And the goddess stirred in him unwearying strength: \
+pub const SUBTITLE: &str = "And the goddess stirred in him unwearying strength: \
      sleep never fell upon his eyes; but he kept sure watch always.";
 
 // NOTE: XorShift64 — fast non-crypto PRNG, no external dep
@@ -26,7 +25,12 @@ pub struct FlameGrid {
 
 impl FlameGrid {
     pub fn new(seed: u64) -> Self {
-        Self { grid: Vec::new(), width: 0, height: 0, seed }
+        Self {
+            grid: Vec::new(),
+            width: 0,
+            height: 0,
+            seed,
+        }
     }
 
     pub fn resize(&mut self, w: usize, h: usize) {
@@ -142,4 +146,3 @@ pub fn render_flames(frame: &mut Frame, area: Rect, flame: &FlameGrid) {
         }
     }
 }
-

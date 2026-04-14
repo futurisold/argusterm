@@ -1,6 +1,6 @@
 [package]
 name = "argusterm"
-version = "0.7.1"
+version = "0.7.2"
 edition = "2024"
 description = "TUI security feed monitor with LLM-powered triage"
 
@@ -9,7 +9,7 @@ name = "argus"
 path = "src/main.rs"
 
 [dependencies]
-ratatui = "0.30"
+ratatui = { version = "0.30", default-features = false, features = ["crossterm", "underline-color", "all-widgets", "macros", "layout-cache"] }
 crossterm = { version = "0.28", features = ["event-stream"] }
 tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.12", features = ["json"] }

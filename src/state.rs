@@ -107,8 +107,10 @@ pub enum SortMode {
     DateAsc,
 }
 
+// NOTE: `None` preserves the intrinsic vec order, which is maintained in indexed-desc order
+// (newest-seen first) at ingestion time. Labelled so users know what they're looking at.
 const SORT_CYCLE: &[(SortMode, &str)] = &[
-    (SortMode::None, ""),
+    (SortMode::None, "indexed↓"),
     (SortMode::ScoreDesc, "score↓"),
     (SortMode::ScoreAsc, "score↑"),
     (SortMode::DateDesc, "date↓"),
@@ -134,6 +136,10 @@ pub struct CveEntry {
     pub description: String,
     pub severity: Option<String>,
     pub published: DateTime<Utc>,
+    // NOTE: wall-clock time when argusterm first ingested this entry (feed poll hit).
+    // Drives the default list ordering so items newly surfaced by a feed rise to the top,
+    // even when `published` is older than entries we've already seen.
+    pub indexed_at: DateTime<Utc>,
     pub source: FeedSource,
     pub url: Option<String>,
     pub llm_summary: Option<String>,
