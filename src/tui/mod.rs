@@ -437,16 +437,23 @@ pub fn render(frame: &mut Frame, state: &mut AppState) {
     } else {
         "/"
     };
-    let status =
-        format!(" {vis}/{total}{llm} | {nav} | s:sort o:open r:redo x:drop q tab {esc_or_slash}");
-    let status_line = Line::from(vec![
-        s(status, Color::DarkGray),
-        Span::styled(
-            format!(" • \"{SUBTITLE}\""),
+    let status = format!(
+        " {vis}/{total}{llm} | {nav} | p:pause s:sort o:open r:redo x:drop q tab {esc_or_slash}"
+    );
+    let mut spans = vec![s(status, Color::DarkGray)];
+    if state.paused.load(std::sync::atomic::Ordering::Relaxed) {
+        spans.push(Span::styled(
+            " PAUSED",
             Style::default()
-                .fg(Color::DarkGray)
-                .add_modifier(Modifier::ITALIC),
-        ),
-    ]);
-    frame.render_widget(Paragraph::new(status_line), root[1]);
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ));
+    }
+    spans.push(Span::styled(
+        format!(" • \"{SUBTITLE}\""),
+        Style::default()
+            .fg(Color::DarkGray)
+            .add_modifier(Modifier::ITALIC),
+    ));
+    frame.render_widget(Paragraph::new(Line::from(spans)), root[1]);
 }

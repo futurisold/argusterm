@@ -1,7 +1,9 @@
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use chrono::Utc;
-use tokio::sync::mpsc;
+use tokio::sync::{Notify, mpsc};
 use tokio::time;
 
 use crate::state::{CveEntry, FeedSource};
@@ -128,7 +130,13 @@ async fn fetch_and_parse(client: &reqwest::Client, url: &str) -> anyhow::Result<
         .collect())
 }
 
-async fn poll_loop(tx: mpsc::UnboundedSender<AppEvent>, urls: Vec<String>, interval_secs: u64) {
+async fn poll_loop(
+    tx: mpsc::UnboundedSender<AppEvent>,
+    urls: Vec<String>,
+    interval_secs: u64,
+    paused: Arc<AtomicBool>,
+    unpause: Arc<Notify>,
+) {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
         .build()
@@ -141,7 +149,16 @@ async fn poll_loop(tx: mpsc::UnboundedSender<AppEvent>, urls: Vec<String>, inter
     ticker.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
 
     loop {
-        ticker.tick().await;
+        // NOTE: race the natural tick against an unpause wake so toggling `p` off triggers
+        // an immediate poll instead of waiting up to `interval_secs` for the next tick.
+        // When paused, a tick still fires — we skip it via the flag check below.
+        tokio::select! {
+            _ = ticker.tick() => {}
+            _ = unpause.notified() => {}
+        }
+        if paused.load(Ordering::Relaxed) {
+            continue;
+        }
         for url in &urls {
             let evt = match fetch_and_parse(&client, url).await {
                 Ok(entries) if !entries.is_empty() => AppEvent::NewEntries(entries),
@@ -155,6 +172,12 @@ async fn poll_loop(tx: mpsc::UnboundedSender<AppEvent>, urls: Vec<String>, inter
     }
 }
 
-pub fn spawn(tx: mpsc::UnboundedSender<AppEvent>, urls: Vec<String>, interval_secs: u64) {
-    tokio::spawn(poll_loop(tx, urls, interval_secs));
+pub fn spawn(
+    tx: mpsc::UnboundedSender<AppEvent>,
+    urls: Vec<String>,
+    interval_secs: u64,
+    paused: Arc<AtomicBool>,
+    unpause: Arc<Notify>,
+) {
+    tokio::spawn(poll_loop(tx, urls, interval_secs, paused, unpause));
 }

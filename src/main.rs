@@ -6,11 +6,13 @@ mod llm;
 mod state;
 mod tui;
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use anyhow::Result;
 use crossterm::event::KeyCode;
-use tokio::sync::mpsc;
+use tokio::sync::{Notify, mpsc};
 
 use crate::db::Db;
 use crate::state::{AppState, Config, CveEntry, Pane};
@@ -22,6 +24,7 @@ fn handle_shared(
     state: &mut AppState,
     db: &Db,
     llm_tx: &mpsc::UnboundedSender<CveEntry>,
+    unpause: &Notify,
 ) -> bool {
     match code {
         KeyCode::Char('q') | KeyCode::Esc => state.should_quit = true,
@@ -31,6 +34,14 @@ fn handle_shared(
                 .and_then(|i| state.entries[i].url.as_deref())
             {
                 let _ = std::process::Command::new("open").arg(url).spawn();
+            }
+        }
+        KeyCode::Char('p') => {
+            // NOTE: fetch_xor returns the prior value; if we were paused (true), we just
+            // cleared the flag — kick the poll loop awake so it polls now instead of
+            // waiting up to `poll_interval_secs` for the next tick.
+            if state.paused.fetch_xor(true, Ordering::Relaxed) {
+                unpause.notify_one();
             }
         }
         KeyCode::Char('r') => {
@@ -90,10 +101,14 @@ async fn main() -> Result<()> {
     let mut tui = Tui::new()?;
     tui.start(Duration::from_millis(config.tui.refresh_rate_ms));
 
+    let paused = Arc::new(AtomicBool::new(false));
+    let unpause = Arc::new(Notify::new());
     feeds::spawn(
         tui.event_tx(),
         config.feeds.urls,
         config.feeds.poll_interval_secs,
+        Arc::clone(&paused),
+        Arc::clone(&unpause),
     );
     let llm_tx = llm::spawn(tui.event_tx(), config.llm, config.scraper, config.diagram);
 
@@ -101,7 +116,7 @@ async fn main() -> Result<()> {
     let days_lookback = config.filters.days_lookback;
     let ingest_cutoff = chrono::Utc::now() - chrono::Duration::days(days_lookback as i64);
 
-    let mut state = AppState::default();
+    let mut state = AppState::new(Arc::clone(&paused));
     for e in db.load_since(days_lookback)? {
         if e.llm_summary.is_none() {
             let _ = llm_tx.send(e.clone());
@@ -147,7 +162,7 @@ async fn main() -> Result<()> {
                         _ => {}
                     }
                 } else if state.active_pane == Pane::Detail {
-                    if !handle_shared(key.code, &mut state, &db, &llm_tx) {
+                    if !handle_shared(key.code, &mut state, &db, &llm_tx, &unpause) {
                         match key.code {
                             KeyCode::Down | KeyCode::Char('j') => state.scroll_detail(1, 0),
                             KeyCode::Up | KeyCode::Char('k') => state.scroll_detail(-1, 0),
@@ -170,7 +185,7 @@ async fn main() -> Result<()> {
                     if key.code == KeyCode::Char('g') {
                         state.select_first();
                     }
-                } else if !handle_shared(key.code, &mut state, &db, &llm_tx) {
+                } else if !handle_shared(key.code, &mut state, &db, &llm_tx, &unpause) {
                     match key.code {
                         KeyCode::Down | KeyCode::Char('j') => state.select_delta(1),
                         KeyCode::Up | KeyCode::Char('k') => state.select_delta(-1),

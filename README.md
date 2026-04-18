@@ -113,7 +113,7 @@ The `days_lookback` setting controls both which cached entries are loaded on sta
 | **Detail** | `j`/`k` vscroll · `h`/`l` hscroll · `c` enter CVE bar |
 | **CVE Bar** | `h`/`l` nav · `o` open on NVD · `Esc` exit |
 | **Filter Bar** | type to filter · `Backspace` delete · `Esc`/`Enter` exit |
-| **Global** | `o` open URL · `r` re-triage · `x` delete (permanent) · `s` cycle sort · `/` filter · `Tab` cycle panes · `q`/`Esc` quit |
+| **Global** | `o` open URL · `r` re-triage · `x` delete (permanent) · `s` cycle sort · `p` pause/resume polling · `/` filter · `Tab` cycle panes · `q`/`Esc` quit |
 
 ## Data Persistence
 

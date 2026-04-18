@@ -1,3 +1,6 @@
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+
 use chrono::{DateTime, Utc};
 use ratatui::widgets::ListState;
 use serde::Deserialize;
@@ -170,10 +173,13 @@ pub struct AppState {
     pub flame_left: FlameGrid,
     pub flame_right: FlameGrid,
     pub flame_top: FlameGrid,
+    // NOTE: shared with the feed poll loop; toggling this halts fetching without affecting
+    // in-flight LLM triage or rendering.
+    pub paused: Arc<AtomicBool>,
 }
 
-impl Default for AppState {
-    fn default() -> Self {
+impl AppState {
+    pub fn new(paused: Arc<AtomicBool>) -> Self {
         let mut list_state = ListState::default();
         list_state.select(Some(0));
         Self {
@@ -193,11 +199,10 @@ impl Default for AppState {
             flame_left: FlameGrid::new(0xDEADBEEF_12345678),
             flame_right: FlameGrid::new(0xCAFEBABE_87654321),
             flame_top: FlameGrid::new(0xFEEDFACE_DEADBEEF),
+            paused,
         }
     }
-}
 
-impl AppState {
     fn reset_detail(&mut self) {
         self.detail_scroll = 0;
         self.detail_hscroll = 0;
